@@ -1,4 +1,8 @@
-import { HighlightrSettings } from "src/settings/settingsData";
+import {
+  HighlightrSettings,
+  getHighlighterHex,
+  getHighlighterFont,
+} from "src/settings/settingsData";
 import { setAttributes } from "./setAttributes";
 
 function addNewStyle(selector: any, style: any, sheet: HTMLElement) {
@@ -16,10 +20,14 @@ export function createStyles(settings: HighlightrSettings) {
   header.appendChild(styleSheet);
 
   Object.keys(settings.highlighters).forEach((highlighter) => {
+    const entry = settings.highlighters[highlighter];
+    const hex = getHighlighterHex(entry);
+    const fontColor =
+      getHighlighterFont(entry) === "dark" ? "#1d1d1d" : "#ffffff";
     let colorLowercase = highlighter.toLowerCase();
     addNewStyle(
       `.hltr-${colorLowercase},\nmark.hltr-${colorLowercase},\n.markdown-preview-view mark.hltr-${colorLowercase}`,
-      `background: ${settings.highlighters[highlighter]};`,
+      `background: ${hex}; color: ${fontColor};`,
       styleSheet
     );
   });

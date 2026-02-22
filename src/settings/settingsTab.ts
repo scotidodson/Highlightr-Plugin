@@ -8,12 +8,27 @@ import {
 } from "obsidian";
 import Pickr from "@simonwep/pickr";
 import Sortable from "sortablejs";
-import { HIGHLIGHTER_METHODS, HIGHLIGHTER_STYLES } from "./settingsData";
+import {
+  HIGHLIGHTER_METHODS,
+  HIGHLIGHTER_STYLES,
+  getHighlighterHex,
+  getHighlighterFont,
+  type HighlighterFont,
+} from "./settingsData";
 import { setAttributes } from "src/utils/setAttributes";
+
+/** Normalize user hex input to #RRGGBB or #RRGGBBAA */
+function normalizeHex(input: string): string | null {
+  const s = input.trim().replace(/^#/, "");
+  if (!/^[0-9A-Fa-f]{6}$/.test(s) && !/^[0-9A-Fa-f]{8}$/.test(s)) return null;
+  return "#" + s;
+}
 
 export class HighlightrSettingTab extends PluginSettingTab {
   plugin: HighlightrPlugin;
   appendMethod: string;
+  /** When set, Save updates this highlighter instead of adding new */
+  editingKey: string | null = null;
 
   constructor(app: App, plugin: HighlightrPlugin) {
     super(app, plugin);
@@ -92,7 +107,7 @@ export class HighlightrSettingTab extends PluginSettingTab {
       .setName("Choose highlight colors")
       .setClass("highlighterplugin-setting-item")
       .setDesc(
-        `Create new highlight colors by providing a color name and using the color picker to set the hex code value. Don't forget to save the color before exiting the color picker. Drag and drop the highlight color to change the order for your highlighter component.`
+        `Create or edit highlight colors: enter a name and a hex code (e.g. #FF5582 or #FF5582A6), or use the color picker. Choose dark or light text. Save to add a new color; use Edit on an existing color to change it and Save again. Drag and drop to reorder.`
       );
 
     const colorInput = new TextComponent(highlighterSetting.controlEl);
@@ -100,8 +115,44 @@ export class HighlightrSettingTab extends PluginSettingTab {
     colorInput.inputEl.addClass("highlighter-settings-color");
 
     const valueInput = new TextComponent(highlighterSetting.controlEl);
-    valueInput.setPlaceholder("Color hex code");
+    valueInput.setPlaceholder("Hex (e.g. #FF5582 or #FF5582A6)");
     valueInput.inputEl.addClass("highlighter-settings-value");
+
+    const updateHexPreview = (hex: string) => {
+      const normalized = normalizeHex(hex);
+      const displayHex = normalized || hex || "#888888";
+      const style = `background-color: ${displayHex}; color: var(--text-normal);`;
+      valueInput.inputEl.setAttribute("style", style);
+      setAttributes(valueInput.inputEl, { style });
+    };
+
+    valueInput.inputEl.addEventListener("input", () => {
+      updateHexPreview(valueInput.inputEl.value);
+    });
+    valueInput.inputEl.addEventListener("change", () => {
+      updateHexPreview(valueInput.inputEl.value);
+    });
+
+    let selectedFont: HighlighterFont = "dark";
+    if (this.editingKey && this.plugin.settings.highlighters[this.editingKey]) {
+      colorInput.setValue(this.editingKey);
+      const entry = this.plugin.settings.highlighters[this.editingKey];
+      valueInput.setValue(getHighlighterHex(entry));
+      selectedFont = getHighlighterFont(entry);
+      updateHexPreview(getHighlighterHex(entry));
+    }
+
+    const fontSetting = new Setting(highlighterSetting.controlEl);
+    fontSetting.setName("Text color").setDesc("Dark or light text on this highlight");
+    fontSetting.addDropdown((dropdown) => {
+      dropdown
+        .addOption("dark", "Dark font (#1d1d1d)")
+        .addOption("light", "Light font (#ffffff)")
+        .setValue(selectedFont)
+        .onChange((v: HighlighterFont) => {
+          selectedFont = v;
+        });
+    });
 
     highlighterSetting
       .addButton((button) => {
@@ -109,19 +160,19 @@ export class HighlightrSettingTab extends PluginSettingTab {
       })
       .then(() => {
         let input = valueInput.inputEl;
-        let currentColor = valueInput.inputEl.value || null;
 
-        const colorMap = this.plugin.settings.highlighterOrder.map(
-          (highlightKey) => this.plugin.settings.highlighters[highlightKey]
+        const colorMap = this.plugin.settings.highlighterOrder.map((highlightKey) =>
+          getHighlighterHex(this.plugin.settings.highlighters[highlightKey])
         );
+        const lastHex = colorMap.length ? colorMap[colorMap.length - 1] : "#FFB8EBA6";
+        const initialHex = normalizeHex(input.value) || lastHex;
 
-        let colorHex;
         let pickrCreate = new Pickr({
           el: ".highlightr-color-picker",
           theme: "nano",
           swatches: colorMap,
           defaultRepresentation: "HEXA",
-          default: colorMap[colorMap.length - 1],
+          default: initialHex,
           comparison: false,
           components: {
             preview: true,
@@ -147,39 +198,26 @@ export class HighlightrSettingTab extends PluginSettingTab {
             input.trigger("change");
           })
           .on("cancel", function (instance: Pickr) {
-            currentColor = instance.getSelectedColor().toHEXA().toString();
-
             input.trigger("change");
             instance.hide();
           })
           .on("change", function (color: Pickr.HSVaColor) {
-            colorHex = color.toHEXA().toString();
-            let newColor;
-            colorHex.length == 6
-              ? (newColor = `${color.toHEXA().toString()}A6`)
-              : (newColor = color.toHEXA().toString());
-            colorInput.inputEl.setAttribute(
-              "style",
-              `background-color: ${newColor}; color: var(--text-normal);`
-            );
-
+            let colorHex = color.toHEXA().toString();
+            let newColor = colorHex.length === 6 ? `${colorHex}A6` : colorHex;
             setAttributes(input, {
               value: newColor,
               style: `background-color: ${newColor}; color: var(--text-normal);`,
             });
-            input.setText(newColor);
-            input.textContent = newColor;
             input.value = newColor;
+            valueInput.setValue(newColor);
             input.trigger("change");
           })
           .on("save", function (color: Pickr.HSVaColor, instance: Pickr) {
             let newColorValue = color.toHEXA().toString();
-
-            input.setText(newColorValue);
-            input.textContent = newColorValue;
+            if (newColorValue.length === 6) newColorValue += "A6";
+            valueInput.setValue(newColorValue);
             input.value = newColorValue;
-            input.trigger("change");
-
+            updateHexPreview(newColorValue);
             instance.hide();
             instance.addSwatch(color.toHEXA().toString());
           });
@@ -189,30 +227,55 @@ export class HighlightrSettingTab extends PluginSettingTab {
           .setClass("HighlightrSettingsButton")
           .setClass("HighlightrSettingsButtonAdd")
           .setIcon("highlightr-save")
-          .setTooltip("Save")
+          .setTooltip(this.editingKey ? "Update color" : "Save")
           .onClick(async (buttonEl: any) => {
-            let color = colorInput.inputEl.value.replace(" ", "-");
-            let value = valueInput.inputEl.value;
+            let color = colorInput.inputEl.value.replace(/\s+/g, "-").trim();
+            let value = valueInput.inputEl.value.trim();
+            const hex = normalizeHex(value);
 
-            if (color && value) {
-              if (!this.plugin.settings.highlighterOrder.includes(color)) {
-                this.plugin.settings.highlighterOrder.push(color);
-                this.plugin.settings.highlighters[color] = value;
-                setTimeout(() => {
-                  dispatchEvent(new Event("Highlightr-NewCommand"));
-                }, 100);
-                await this.plugin.saveSettings();
-                this.display();
-              } else {
-                buttonEl.stopImmediatePropagation();
-                new Notice("This color already exists");
-              }
+            if (!color) {
+              new Notice("Highlighter name missing");
+              return;
             }
-            color && !value
-              ? new Notice("Highlighter hex code missing")
-              : !color && value
-              ? new Notice("Highlighter name missing")
-              : new Notice("Highlighter values missing"); // else
+            if (!hex) {
+              new Notice("Enter a valid hex code (e.g. #FF5582 or #FF5582A6)");
+              return;
+            }
+
+            const entry = { hex, font: selectedFont };
+            const order = this.plugin.settings.highlighterOrder;
+            const highlighters = this.plugin.settings.highlighters;
+
+            if (this.editingKey !== null) {
+              const oldKey = this.editingKey;
+              if (oldKey === color) {
+                highlighters[color] = entry;
+              } else {
+                (this.app as any).commands.removeCommand(`highlightr-plugin:${oldKey}`);
+                delete highlighters[oldKey];
+                const idx = order.indexOf(oldKey);
+                if (idx !== -1) order.splice(idx, 1);
+                if (!order.includes(color)) {
+                  order.push(color);
+                }
+                highlighters[color] = entry;
+              }
+              this.editingKey = null;
+              new Notice(`Updated "${color}"`);
+            } else {
+              if (order.includes(color)) {
+                buttonEl.stopImmediatePropagation();
+                new Notice("A color with this name already exists. Use Edit to change it.");
+                return;
+              }
+              order.push(color);
+              highlighters[color] = entry;
+              new Notice(`Saved "${color}"`);
+            }
+
+            setTimeout(() => dispatchEvent(new Event("Highlightr-NewCommand")), 100);
+            await this.plugin.saveSettings();
+            this.display();
           });
       });
 
@@ -239,7 +302,10 @@ export class HighlightrSettingTab extends PluginSettingTab {
     });
 
     this.plugin.settings.highlighterOrder.forEach((highlighter) => {
-      const icon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill=${this.plugin.settings.highlighters[highlighter]} stroke=${this.plugin.settings.highlighters[highlighter]} stroke-width="0" stroke-linecap="round" stroke-linejoin="round"><path d="M20.707 5.826l-3.535-3.533a.999.999 0 0 0-1.408-.006L7.096 10.82a1.01 1.01 0 0 0-.273.488l-1.024 4.437L4 18h2.828l1.142-1.129l3.588-.828c.18-.042.345-.133.477-.262l8.667-8.535a1 1 0 0 0 .005-1.42zm-9.369 7.833l-2.121-2.12l7.243-7.131l2.12 2.12l-7.242 7.131zM4 20h16v2H4z"/></svg>`;
+      const entry = this.plugin.settings.highlighters[highlighter];
+      const hex = getHighlighterHex(entry);
+      const fontLabel = getHighlighterFont(entry) === "dark" ? "dark" : "light";
+      const icon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="${hex}" stroke="${hex}" stroke-width="0" stroke-linecap="round" stroke-linejoin="round"><path d="M20.707 5.826l-3.535-3.533a.999.999 0 0 0-1.408-.006L7.096 10.82a1.01 1.01 0 0 0-.273.488l-1.024 4.437L4 18h2.828l1.142-1.129l3.588-.828c.18-.042.345-.133.477-.262l8.667-8.535a1 1 0 0 0 .005-1.42zm-9.369 7.833l-2.121-2.12l7.243-7.131l2.12 2.12l-7.242 7.131zM4 20h16v2H4z"/></svg>`;
       const settingItem = highlightersContainer.createEl("div");
       settingItem.addClass("highlighter-item-draggable");
       const colorIcon = settingItem.createEl("span");
@@ -249,7 +315,17 @@ export class HighlightrSettingTab extends PluginSettingTab {
       new Setting(settingItem)
         .setClass("highlighter-setting-item")
         .setName(highlighter)
-        .setDesc(this.plugin.settings.highlighters[highlighter])
+        .setDesc(`${hex} · ${fontLabel} font`)
+        .addButton((button) => {
+          button
+            .setClass("HighlightrSettingsButton")
+            .setIcon("pencil")
+            .setTooltip("Edit")
+            .onClick(() => {
+              this.editingKey = highlighter;
+              this.display();
+            });
+        })
         .addButton((button) => {
           button
             .setClass("HighlightrSettingsButton")
@@ -262,7 +338,9 @@ export class HighlightrSettingTab extends PluginSettingTab {
                 `highlightr-plugin:${highlighter}`
               );
               delete this.plugin.settings.highlighters[highlighter];
-              this.plugin.settings.highlighterOrder.remove(highlighter);
+              const idx = this.plugin.settings.highlighterOrder.indexOf(highlighter);
+              if (idx !== -1) this.plugin.settings.highlighterOrder.splice(idx, 1);
+              if (this.editingKey === highlighter) this.editingKey = null;
               setTimeout(() => {
                 dispatchEvent(new Event("Highlightr-NewCommand"));
               }, 100);

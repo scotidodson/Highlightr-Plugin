@@ -2,7 +2,12 @@ import { Editor, Menu, Plugin, PluginManifest } from "obsidian";
 import { wait } from "src/utils/util";
 import addIcons from "src/icons/customIcons";
 import { HighlightrSettingTab } from "../settings/settingsTab";
-import { HighlightrSettings } from "../settings/settingsData";
+import {
+  HighlightrSettings,
+  getHighlighterHex,
+  getHighlighterFont,
+  migrateHighlighters,
+} from "../settings/settingsData";
 import DEFAULT_SETTINGS from "../settings/settingsData";
 import contextMenu from "src/plugin/contextMenu";
 import highlighterMenu from "src/ui/highlighterMenu";
@@ -138,17 +143,23 @@ export default class HighlightrPlugin extends Plugin {
         [key: string]: CommandPlot;
       };
 
-      const commandsMap: commandsPlot = {
-        highlight: {
-          char: 34,
-          line: 0,
-          prefix:
-            this.settings.highlighterMethods === "css-classes"
-              ? `<mark class="hltr-${highlighterKey.toLowerCase()}">`
-              : `<mark style="background: ${this.settings.highlighters[highlighterKey]};">`,
-          suffix: "</mark>",
-        },
-      };
+      const hex = getHighlighterHex(this.settings.highlighters[highlighterKey]);
+        const fontColor =
+          getHighlighterFont(this.settings.highlighters[highlighterKey]) ===
+          "dark"
+            ? "#1d1d1d"
+            : "#ffffff";
+        const commandsMap: commandsPlot = {
+          highlight: {
+            char: 34,
+            line: 0,
+            prefix:
+              this.settings.highlighterMethods === "css-classes"
+                ? `<mark class="hltr-${highlighterKey.toLowerCase()}">`
+                : `<mark style="background: ${hex}; color: ${fontColor};">`,
+            suffix: "</mark>",
+          },
+        };
 
       Object.keys(commandsMap).forEach((type) => {
         let highlighterpen = `highlightr-pen-${highlighterKey}`.toLowerCase();
@@ -211,7 +222,9 @@ export default class HighlightrPlugin extends Plugin {
   };
 
   async loadSettings() {
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    const loaded = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    loaded.highlighters = migrateHighlighters(loaded.highlighters);
+    this.settings = loaded;
   }
 
   async saveSettings() {
