@@ -6,15 +6,15 @@ import {
   Notice,
   TextComponent,
 } from "obsidian";
-import Pickr from "@simonwep/pickr";
 import Sortable from "sortablejs";
 import {
   HIGHLIGHTER_METHODS,
   HIGHLIGHTER_STYLES,
   getHighlighterHex,
   getHighlighterFont,
-  type HighlighterFont,
+  getHighlighterStyle,
 } from "./settingsData";
+import type { HighlighterFont, HighlighterStyle } from "./settingsData";
 import { setAttributes } from "src/utils/setAttributes";
 
 /** Normalize user hex input to #RRGGBB or #RRGGBBAA */
@@ -67,47 +67,13 @@ export class HighlightrSettingTab extends PluginSettingTab {
           });
       });
 
-    const stylesSetting = new Setting(containerEl);
-
-    stylesSetting
-      .setName("Choose highlight style")
-      .setDesc(
-        `Depending on your design aesthetic, you may want to customize the style of your highlights. Choose from an assortment of different highlighter styles by using the dropdown. Depending on your theme, this plugin's CSS may be overriden.`
-      )
-      .addDropdown((dropdown) => {
-        let styles: Record<string, string> = {};
-        HIGHLIGHTER_STYLES.map((style) => (styles[style] = style));
-        dropdown.addOptions(styles);
-        dropdown
-          .setValue(this.plugin.settings.highlighterStyle)
-          .onChange((highlighterStyle) => {
-            this.plugin.settings.highlighterStyle = highlighterStyle;
-            this.plugin.saveSettings();
-            this.plugin.saveData(this.plugin.settings);
-            this.plugin.refresh();
-          });
-      });
-
-    const styleDemo = () => {
-      const d = createEl("p");
-      d.setAttribute("style", "font-size: .925em; margin-top: 12px;");
-      d.innerHTML = `
-      <span style="background:#FFB7EACC;padding: .125em .125em;--lowlight-background: var(--background-primary);border-radius: 0;background-image: linear-gradient(360deg,rgba(255, 255, 255, 0) 40%,var(--lowlight-background) 40%) !important;">Lowlight</span> 
-      <span style="background:#93C0FFCC;--floating-background: var(--background-primary);border-radius: 0;padding-bottom: 5px;background-image: linear-gradient(360deg,rgba(255, 255, 255, 0) 28%,var(--floating-background) 28%) !important;">Floating</span> 
-      <span style="background:#9CF09CCC;margin: 0 -0.05em;padding: 0.1em 0.4em;border-radius: 0.8em 0.3em;-webkit-box-decoration-break: clone;box-decoration-break: clone;text-shadow: 0 0 0.75em var(--background-primary-alt);">Realistic</span> 
-      <span style="background:#CCA9FFCC;margin: 0 -0.05em;padding: 0.125em 0.15em;border-radius: 0.2em;-webkit-box-decoration-break: clone;box-decoration-break: clone;">Rounded</span>`;
-      return d;
-    };
-
-    stylesSetting.infoEl.appendChild(styleDemo());
-
     const highlighterSetting = new Setting(containerEl);
 
     highlighterSetting
       .setName("Choose highlight colors")
       .setClass("highlighterplugin-setting-item")
       .setDesc(
-        `Create or edit highlight colors: enter a name and a hex code (e.g. #FF5582 or #FF5582A6), or use the color picker. Choose dark or light text. Save to add a new color; use Edit on an existing color to change it and Save again. Drag and drop to reorder.`
+        `Create or edit highlight colors: enter a name and a hex code (e.g. #FF5582 or #FF5582A6). Set text color (dark/light) and highlight style per color. Save to add; use Edit then Save to update. Drag to reorder.`
       );
 
     const colorInput = new TextComponent(highlighterSetting.controlEl);
@@ -134,11 +100,13 @@ export class HighlightrSettingTab extends PluginSettingTab {
     });
 
     let selectedFont: HighlighterFont = "dark";
+    let selectedStyle: HighlighterStyle = "none";
     if (this.editingKey && this.plugin.settings.highlighters[this.editingKey]) {
       colorInput.setValue(this.editingKey);
       const entry = this.plugin.settings.highlighters[this.editingKey];
       valueInput.setValue(getHighlighterHex(entry));
       selectedFont = getHighlighterFont(entry);
+      selectedStyle = getHighlighterStyle(entry);
       updateHexPreview(getHighlighterHex(entry));
     }
 
@@ -154,75 +122,17 @@ export class HighlightrSettingTab extends PluginSettingTab {
         });
     });
 
-    highlighterSetting
-      .addButton((button) => {
-        button.setClass("highlightr-color-picker");
-      })
-      .then(() => {
-        let input = valueInput.inputEl;
+    const styleSetting = new Setting(highlighterSetting.controlEl);
+    styleSetting.setName("Highlight style").setDesc("none, lowlight, floating, rounded, realistic");
+    styleSetting.addDropdown((dropdown) => {
+      const options: Record<string, string> = {};
+      HIGHLIGHTER_STYLES.forEach((s) => (options[s] = s));
+      dropdown.addOptions(options).setValue(selectedStyle).onChange((v: HighlighterStyle) => {
+        selectedStyle = v;
+      });
+    });
 
-        const colorMap = this.plugin.settings.highlighterOrder.map((highlightKey) =>
-          getHighlighterHex(this.plugin.settings.highlighters[highlightKey])
-        );
-        const lastHex = colorMap.length ? colorMap[colorMap.length - 1] : "#FFB8EBA6";
-        const initialHex = normalizeHex(input.value) || lastHex;
-
-        let pickrCreate = new Pickr({
-          el: ".highlightr-color-picker",
-          theme: "nano",
-          swatches: colorMap,
-          defaultRepresentation: "HEXA",
-          default: initialHex,
-          comparison: false,
-          components: {
-            preview: true,
-            opacity: true,
-            hue: true,
-            interaction: {
-              hex: true,
-              rgba: true,
-              hsla: false,
-              hsva: false,
-              cmyk: false,
-              input: true,
-              clear: true,
-              cancel: true,
-              save: true,
-            },
-          },
-        });
-
-        pickrCreate
-          .on("clear", function (instance: Pickr) {
-            instance.hide();
-            input.trigger("change");
-          })
-          .on("cancel", function (instance: Pickr) {
-            input.trigger("change");
-            instance.hide();
-          })
-          .on("change", function (color: Pickr.HSVaColor) {
-            let colorHex = color.toHEXA().toString();
-            let newColor = colorHex.length === 6 ? `${colorHex}A6` : colorHex;
-            setAttributes(input, {
-              value: newColor,
-              style: `background-color: ${newColor}; color: var(--text-normal);`,
-            });
-            input.value = newColor;
-            valueInput.setValue(newColor);
-            input.trigger("change");
-          })
-          .on("save", function (color: Pickr.HSVaColor, instance: Pickr) {
-            let newColorValue = color.toHEXA().toString();
-            if (newColorValue.length === 6) newColorValue += "A6";
-            valueInput.setValue(newColorValue);
-            input.value = newColorValue;
-            updateHexPreview(newColorValue);
-            instance.hide();
-            instance.addSwatch(color.toHEXA().toString());
-          });
-      })
-      .addButton((button) => {
+    highlighterSetting.addButton((button) => {
         button
           .setClass("HighlightrSettingsButton")
           .setClass("HighlightrSettingsButtonAdd")
@@ -242,7 +152,7 @@ export class HighlightrSettingTab extends PluginSettingTab {
               return;
             }
 
-            const entry = { hex, font: selectedFont };
+            const entry = { hex, font: selectedFont, style: selectedStyle };
             const order = this.plugin.settings.highlighterOrder;
             const highlighters = this.plugin.settings.highlighters;
 
@@ -305,6 +215,7 @@ export class HighlightrSettingTab extends PluginSettingTab {
       const entry = this.plugin.settings.highlighters[highlighter];
       const hex = getHighlighterHex(entry);
       const fontLabel = getHighlighterFont(entry) === "dark" ? "dark" : "light";
+      const styleLabel = getHighlighterStyle(entry);
       const icon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="${hex}" stroke="${hex}" stroke-width="0" stroke-linecap="round" stroke-linejoin="round"><path d="M20.707 5.826l-3.535-3.533a.999.999 0 0 0-1.408-.006L7.096 10.82a1.01 1.01 0 0 0-.273.488l-1.024 4.437L4 18h2.828l1.142-1.129l3.588-.828c.18-.042.345-.133.477-.262l8.667-8.535a1 1 0 0 0 .005-1.42zm-9.369 7.833l-2.121-2.12l7.243-7.131l2.12 2.12l-7.242 7.131zM4 20h16v2H4z"/></svg>`;
       const settingItem = highlightersContainer.createEl("div");
       settingItem.addClass("highlighter-item-draggable");
@@ -315,7 +226,7 @@ export class HighlightrSettingTab extends PluginSettingTab {
       new Setting(settingItem)
         .setClass("highlighter-setting-item")
         .setName(highlighter)
-        .setDesc(`${hex} · ${fontLabel} font`)
+        .setDesc(`${hex} · ${fontLabel} font · ${styleLabel}`)
         .addButton((button) => {
           button
             .setClass("HighlightrSettingsButton")

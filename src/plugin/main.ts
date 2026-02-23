@@ -4,8 +4,10 @@ import addIcons from "src/icons/customIcons";
 import { HighlightrSettingTab } from "../settings/settingsTab";
 import {
   HighlightrSettings,
-  getHighlighterHex,
   getHighlighterFont,
+  getHighlighterStyle,
+  highlighterSlug,
+  highlighterCssVars,
   migrateHighlighters,
 } from "../settings/settingsData";
 import DEFAULT_SETTINGS from "../settings/settingsData";
@@ -143,20 +145,19 @@ export default class HighlightrPlugin extends Plugin {
         [key: string]: CommandPlot;
       };
 
-      const hex = getHighlighterHex(this.settings.highlighters[highlighterKey]);
-        const fontColor =
-          getHighlighterFont(this.settings.highlighters[highlighterKey]) ===
-          "dark"
-            ? "#1d1d1d"
-            : "#ffffff";
+      const slug = highlighterSlug(highlighterKey);
+        const entry = this.settings.highlighters[highlighterKey];
+        const style = getHighlighterStyle(entry);
+        const styleClass = `hltr-style-${style}`;
+        const vars = highlighterCssVars(slug);
         const commandsMap: commandsPlot = {
           highlight: {
             char: 34,
             line: 0,
             prefix:
               this.settings.highlighterMethods === "css-classes"
-                ? `<mark class="hltr-${highlighterKey.toLowerCase()}">`
-                : `<mark style="background: ${hex}; color: ${fontColor};">`,
+                ? `<mark class="hltr-${slug} ${styleClass}">`
+                : `<mark class="hltr-${slug} ${styleClass}" style="background: ${vars.background}; color: ${vars.fontColor};">`,
             suffix: "</mark>",
           },
         };
@@ -188,26 +189,7 @@ export default class HighlightrPlugin extends Plugin {
   }
 
   refresh = () => {
-    this.updateStyle();
-  };
-
-  updateStyle = () => {
-    document.body.classList.toggle(
-      "highlightr-lowlight",
-      this.settings.highlighterStyle === "lowlight"
-    );
-    document.body.classList.toggle(
-      "highlightr-floating",
-      this.settings.highlighterStyle === "floating"
-    );
-    document.body.classList.toggle(
-      "highlightr-rounded",
-      this.settings.highlighterStyle === "rounded"
-    );
-    document.body.classList.toggle(
-      "highlightr-realistic",
-      this.settings.highlighterStyle === "realistic"
-    );
+    // Per-color styles are applied via .hltr-style-* classes on each mark
   };
 
   onunload() {

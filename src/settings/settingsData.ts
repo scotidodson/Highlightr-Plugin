@@ -4,7 +4,9 @@ export const HIGHLIGHTER_STYLES = [
   "floating",
   "rounded",
   "realistic",
-];
+] as const;
+
+export type HighlighterStyle = (typeof HIGHLIGHTER_STYLES)[number];
 
 export const HIGHLIGHTER_METHODS = ["css-classes", "inline-styles"];
 
@@ -13,6 +15,7 @@ export type HighlighterFont = "dark" | "light";
 export interface HighlighterEntry {
   hex: string;
   font: HighlighterFont;
+  style: HighlighterStyle;
 }
 
 /** Legacy format stored hex as string; we support both and migrate on load */
@@ -35,17 +38,35 @@ export function getHighlighterFont(entry: string | HighlighterEntry): Highlighte
   return typeof entry === "string" ? "dark" : entry.font;
 }
 
+export function getHighlighterStyle(entry: string | HighlighterEntry): HighlighterStyle {
+  if (typeof entry === "string") return "none";
+  return entry.style ?? "none";
+}
+
+/** CSS-safe slug from highlighter name for variable names (e.g. "Celery" → "celery", "Highlight Yellow" → "highlight-yellow") */
+export function highlighterSlug(name: string): string {
+  return name.toLowerCase().replace(/\s+/g, "-");
+}
+
+/** CSS variable names for a highlighter (used in styles and inline marks so colors can be updated globally) */
+export function highlighterCssVars(slug: string) {
+  return {
+    background: `var(--highlightr-${slug}-background)`,
+    fontColor: `var(--highlightr-${slug}-font-color)`,
+  };
+}
+
 const DEFAULT_ENTRIES: Record<string, HighlighterEntry> = {
-  Celery: { hex: "#535353;", font: "dark" },
-  Pink: { hex: "#FFB8EBA6", font: "dark" },
-  Red: { hex: "#FF5582A6", font: "dark" },
-  Orange: { hex: "#FFB86CA6", font: "dark" },
-  Yellow: { hex: "#FFF3A3A6", font: "dark" },
-  Green: { hex: "#BBFABBA6", font: "dark" },
-  Cyan: { hex: "#ABF7F7A6", font: "dark" },
-  Blue: { hex: "#ADCCFFA6", font: "dark" },
-  Purple: { hex: "#D2B3FFA6", font: "dark" },
-  Graphite: { hex: "#535353", font: "light" },
+  Celery: { hex: "#e6feaa", font: "dark", style: "none" },
+  Pink: { hex: "#FFB8EBA6", font: "dark", style: "none" },
+  Red: { hex: "#FF5582A6", font: "dark", style: "none" },
+  Orange: { hex: "#FFB86CA6", font: "dark", style: "none" },
+  Yellow: { hex: "#FFF3A3A6", font: "dark", style: "none" },
+  Green: { hex: "#BBFABBA6", font: "dark", style: "none" },
+  Cyan: { hex: "#ABF7F7A6", font: "dark", style: "none" },
+  Blue: { hex: "#ADCCFFA6", font: "dark", style: "none" },
+  Purple: { hex: "#D2B3FFA6", font: "dark", style: "none" },
+  Graphite: { hex: "#535353", font: "light", style: "none" },
 };
 
 const DEFAULT_SETTINGS: HighlightrSettings = {
@@ -62,7 +83,11 @@ export function migrateHighlighters(highlighters: Highlighters): Highlighters {
   const out: Highlighters = {};
   for (const k of Object.keys(highlighters)) {
     const v = highlighters[k];
-    out[k] = typeof v === "string" ? { hex: v, font: "dark" } : v;
+    if (typeof v === "string") {
+      out[k] = { hex: v, font: "dark", style: "none" };
+    } else {
+      out[k] = { ...v, style: (v as HighlighterEntry).style ?? "none" };
+    }
   }
   return out;
 }
